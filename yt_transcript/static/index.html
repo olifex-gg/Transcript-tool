@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Transcript">
+<title>YouTube Transcript</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon-192.png">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">
+    <svg class="brand-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21.6 7.2a2.5 2.5 0 0 0-1.8-1.8C18.2 5 12 5 12 5s-6.2 0-7.8.4A2.5 2.5 0 0 0 2.4 7.2 26 26 0 0 0 2 12a26 26 0 0 0 .4 4.8 2.5 2.5 0 0 0 1.8 1.8C5.8 19 12 19 12 19s6.2 0 7.8-.4a2.5 2.5 0 0 0 1.8-1.8A26 26 0 0 0 22 12a26 26 0 0 0-.4-4.8zM10 15V9l5.2 3L10 15z"/></svg>
+    <span>Transcript</span>
+  </a>
+  <span class="topbar-right" id="whisper-badge" hidden title="Whisper speech-to-text is installed">Whisper on</span>
+</header>
+
+<main id="app">
+  <!-- ---------------------------------------------------------------- home -->
+  <section id="view-home" hidden>
+    <form id="form" autocomplete="off">
+      <label class="field-label" for="urls">YouTube video or playlist link</label>
+      <textarea id="urls" rows="3" inputmode="url" enterkeyhint="go"
+        placeholder="https://www.youtube.com/watch?v=…&#10;Paste a playlist link to transcribe every video in it. Several links? One per line."></textarea>
+      <div class="row">
+        <button type="button" class="btn" id="paste-btn">Paste</button>
+        <button type="submit" class="btn primary grow" id="submit-btn">Transcribe</button>
+      </div>
+      <p class="error" id="form-error" hidden></p>
+
+      <details class="options" id="options">
+        <summary>Options</summary>
+        <div class="options-grid">
+          <label>
+            <span>Language</span>
+            <input id="opt-language" type="text" placeholder="en" spellcheck="false" autocapitalize="off">
+            <small>Caption language to prefer. Use <code>orig</code> for the video's own language. Comma-separate fallbacks: <code>en,de</code></small>
+          </label>
+          <label>
+            <span>Engine</span>
+            <select id="opt-engine">
+              <option value="auto">Auto (captions, then Whisper)</option>
+              <option value="captions">Captions only (fast)</option>
+              <option value="whisper">Whisper speech-to-text</option>
+            </select>
+            <small id="engine-hint"></small>
+          </label>
+          <label class="check">
+            <input id="opt-playlist" type="checkbox" checked>
+            <span>Transcribe the whole playlist when a link contains one</span>
+          </label>
+        </div>
+      </details>
+    </form>
+
+    <section class="recent" id="recent" hidden>
+      <div class="section-head">
+        <h2>Recent</h2>
+        <button type="button" class="link" id="refresh-recent">Refresh</button>
+      </div>
+      <ul class="list" id="recent-list"></ul>
+    </section>
+
+    <section class="help">
+      <details>
+        <summary>Use it from your phone's share sheet</summary>
+        <ul>
+          <li><strong>Android:</strong> open this page in Chrome, choose <em>Add to Home screen</em>. After that, YouTube's <em>Share</em> button lists <em>Transcript</em> and one tap starts the job.</li>
+          <li><strong>iPhone:</strong> add to Home Screen from Safari's share menu for an app icon, and create a Shortcut that opens <code><span class="origin"></span>/t?url=</code> followed by the shared URL to transcribe straight from the YouTube share sheet. Details are in the README.</li>
+        </ul>
+      </details>
+    </section>
+  </section>
+
+  <!-- ---------------------------------------------------------------- job -->
+  <section id="view-job" hidden>
+    <a class="back" href="/">&larr; New transcript</a>
+    <h1 class="job-title" id="job-title">Loading…</h1>
+    <div class="status-row">
+      <span class="pill" id="job-status">queued</span>
+      <span class="muted" id="job-progress-text"></span>
+    </div>
+    <progress id="job-progress" max="1" value="0"></progress>
+    <p class="error" id="job-error" hidden></p>
+
+    <div class="toolbar">
+      <label class="inline">
+        <span>Format</span>
+        <select id="fmt">
+          <option value="txt">Text</option>
+          <option value="md">Markdown</option>
+          <option value="srt">SRT</option>
+          <option value="vtt">VTT</option>
+          <option value="json">JSON</option>
+        </select>
+      </label>
+      <label class="inline check">
+        <input type="checkbox" id="timestamps">
+        <span>Timestamps</span>
+      </label>
+    </div>
+    <div class="row wrap" id="job-actions">
+      <button class="btn" id="copy-all">Copy all</button>
+      <button class="btn" id="share-all" hidden>Share</button>
+      <a class="btn" id="dl-combined" href="#">Combined file</a>
+      <a class="btn" id="dl-zip" href="#" hidden>Download .zip</a>
+    </div>
+    <div class="row wrap secondary" id="job-admin">
+      <button class="btn small" id="retry-btn" hidden>Retry failed</button>
+      <button class="btn small" id="cancel-btn" hidden>Cancel</button>
+      <button class="btn small danger" id="delete-btn">Delete</button>
+    </div>
+
+    <ul class="list items" id="items"></ul>
+  </section>
+</main>
+
+<div class="toast" id="toast" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+services:
+  transcript:
+    build:
+      context: .
+      args:
+        WHISPER: "0"        # set to "1" to bundle Whisper speech-to-text
+    image: yt-transcript
+    container_name: yt-transcript
+    ports:
+      - "8000:8000"
+    volumes:
+      - transcript-data:/data
+      # - ./cookies.txt:/cookies.txt:ro   # if YouTube asks you to "sign in to confirm you're not a bot"
+    environment:
+      # APP_PASSWORD: change-me           # protect the site when it is reachable from the internet
+      # YT_COOKIES_FILE: /cookies.txt
+      # WHISPER_MODEL: small
+      DEFAULT_LANGUAGE: en
+      WORKERS: "2"
+    restart: unless-stopped
+
+volumes:
+  transcript-data:
