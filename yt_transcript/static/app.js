@@ -2,7 +2,7 @@
 (() => {
   "use strict";
   const $ = (sel, el = document) => el.querySelector(sel);
-  const state = { config: null, job: null, pollTimer: null, cache: new Map() };
+  const state = { config: null, job: null, pollTimer: null, cache: new Map(), picked: new Set() };
   const YT_URL_RE = /https?:\/\/[^\s<>"']+/g;
 
   // ------------------------------------------------------------ helpers
@@ -145,22 +145,69 @@
   async function loadRecent() {
     let jobs = [];
     try { jobs = (await api("/api/jobs?limit=30")).jobs; } catch { return; }
+    state.recent = jobs;
+    // Drop selections whose job has since been deleted or is no longer listed.
+    const ids = new Set(jobs.map(j => j.id));
+    for (const id of [...state.picked]) if (!ids.has(id)) state.picked.delete(id);
+
     const list = $("#recent-list"); list.replaceChildren();
     $("#recent").hidden = !jobs.length;
+    const anyReady = jobs.some(readyToMerge);
+    $("#select-hint").hidden = !anyReady;
+    $("#select-all").hidden = !anyReady;
     for (const j of jobs) {
       const c = j.counts || {};
       const meta = [j.status, c.total ? `${c.done}/${c.total} videos` : null, relTime(j.created_at)].filter(Boolean).join(" · ");
-      list.append(el("li", { class: "card" },
+      const ready = readyToMerge(j);
+      const box = el("input", {
+        type: "checkbox",
+        "aria-label": `Select ${j.title} for combining`,
+        onchange: ev => { ev.target.checked ? state.picked.add(j.id) : state.picked.delete(j.id); renderSelection(); },
+      });
+      box.checked = state.picked.has(j.id);
+      box.disabled = !ready;
+      const row = el("li", { class: "card recent-row", "data-job": j.id },
+        el("label", { class: "pick", title: ready ? "Select for combining" : "No finished transcript yet" }, box),
         el("a", { class: "recent-item", href: `/jobs/${j.id}`, onclick: ev => { ev.preventDefault(); navigate(`/jobs/${j.id}`); } },
           el("span", { class: `pill ${j.status}` }, j.status),
-          el("span", {}, el("div", { class: "title" }, j.title), el("div", { class: "meta" }, meta)),
-          el("button", { class: "btn small del", type: "button", onclick: async ev => {
-            ev.preventDefault(); ev.stopPropagation();
-            if (!confirm("Delete this job and its transcripts?")) return;
-            await api(`/api/jobs/${j.id}`, { method: "DELETE" }); loadRecent();
-          } }, "Delete"))));
+          el("span", {}, el("div", { class: "title" }, j.title), el("div", { class: "meta" }, meta))),
+        el("button", { class: "btn small del", type: "button", onclick: async () => {
+          if (!confirm("Delete this job and its transcripts?")) return;
+          await api(`/api/jobs/${j.id}`, { method: "DELETE" });
+          state.picked.delete(j.id); loadRecent();
+        } }, "Delete"));
+      list.append(row);
     }
+    renderSelection();
   }
+
+  const readyToMerge = j => (j.counts && j.counts.done > 0);
+
+  // Selected jobs in the order they appear in the Recent list (newest first).
+  function pickedIds() { return (state.recent || []).filter(j => state.picked.has(j.id)).map(j => j.id); }
+  function mergeUrl(download) {
+    const p = new URLSearchParams({ jobs: pickedIds().join(","), format: "txt", timestamps: prefs.get().ts ? "1" : "0" });
+    if (download) p.set("download", "1");
+    return `/api/merge?${p}`;
+  }
+  function renderSelection() {
+    const ids = pickedIds();
+    const videos = (state.recent || []).filter(j => state.picked.has(j.id)).reduce((n, j) => n + (j.counts?.done || 0), 0);
+    $("#select-bar").hidden = !ids.length;
+    $("#select-count").textContent = ids.length
+      ? `${ids.length} selected · ${videos} video${videos === 1 ? "" : "s"}`
+      : "";
+    $("#merge-download").href = ids.length ? mergeUrl(true) : "#";
+    $("#merge-share").hidden = !navigator.share;
+    $("#select-all").textContent = allReadyPicked() ? "Select none" : "Select all";
+    for (const li of document.querySelectorAll("#recent-list > li"))
+      li.classList.toggle("picked", state.picked.has(li.dataset.job));
+  }
+  function allReadyPicked() {
+    const ready = (state.recent || []).filter(readyToMerge);
+    return ready.length > 0 && ready.every(j => state.picked.has(j.id));
+  }
+  async function mergedText() { return api(mergeUrl(false)); }
 
   // ------------------------------------------------------------ job view
   function jobId() { return location.pathname.split("/")[2]; }
@@ -266,6 +313,20 @@
     catch { toast("Paste blocked by the browser – long-press the box instead"); $("#urls").focus(); }
   });
   $("#refresh-recent").addEventListener("click", loadRecent);
+  $("#select-all").addEventListener("click", () => {
+    const pickAll = !allReadyPicked();
+    state.picked.clear();
+    if (pickAll) for (const j of (state.recent || [])) if (readyToMerge(j)) state.picked.add(j.id);
+    for (const box of document.querySelectorAll("#recent-list input[type=checkbox]")) box.checked = pickAll && !box.disabled;
+    renderSelection();
+  });
+  $("#select-clear").addEventListener("click", () => {
+    state.picked.clear();
+    for (const box of document.querySelectorAll("#recent-list input[type=checkbox]")) box.checked = false;
+    renderSelection();
+  });
+  $("#merge-copy").addEventListener("click", async () => toast((await copyText(mergedText)) ? "Copied all selected transcripts" : "Copy failed"));
+  $("#merge-share").addEventListener("click", () => shareText("Combined transcripts", mergedText, "Combined transcripts.txt"));
   $("#fmt").addEventListener("change", () => { prefs.set({ fmt: $("#fmt").value }); state.cache.clear(); updateLinks(); if (state.job) renderJob(state.job); });
   $("#timestamps").addEventListener("change", () => { prefs.set({ ts: $("#timestamps").checked }); state.cache.clear(); updateLinks(); if (state.job) renderJob(state.job); });
   $("#copy-all").addEventListener("click", async () => toast((await copyText(combinedText)) ? "Copied all transcripts" : "Copy failed"));

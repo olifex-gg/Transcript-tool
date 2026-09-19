@@ -27,6 +27,26 @@ log = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
+def _transcript_section(t: Transcript, fmt: str, timestamps: bool, label: str, depth: int = 2) -> str:
+    """Render one transcript as a section of a multi-video document."""
+    body = formats.to_txt(t, timestamps=timestamps).rstrip("\n")
+    if fmt == "md":
+        head = ["#" * depth + " " + label, "", f"- Source: {t.url}"]
+        if t.duration:
+            head.append(f"- Duration: {formats.fmt_clock(t.duration)}")
+        head.append(f"- Transcript: {t.source}")
+        return "\n".join(head) + "\n\n" + body + "\n"
+    bar = "=" * 72
+    return f"{bar}\n{label}\n{t.url}\n{bar}\n\n{body}\n"
+
+
+def _contents_block(title: str, lines: list[str]) -> str:
+    """A plain-text table of contents for a merged document."""
+    head = [title, f"{len(lines)} video{'s' if len(lines) != 1 else ''}", ""]
+    head += [f"{i:>3}. {line}" for i, line in enumerate(lines, 1)]
+    return "\n".join(head) + "\n"
+
+
 class CreateJobRequest(BaseModel):
     urls: list[str] | str = Field(..., description="One or more YouTube video/playlist URLs")
     language: Optional[str] = Field(None, description='Preferred caption language(s), e.g. "en" or "en,de"')
@@ -97,6 +117,17 @@ def create_app(
         if t is None:
             raise HTTPException(404, "Transcript file missing")
         return t
+
+    def _finished(job: Any) -> list[tuple[Any, Transcript]]:
+        """(item, transcript) pairs for the job's finished videos, in order."""
+        out = []
+        for item in job.items:
+            if item.status != ITEM_DONE:
+                continue
+            t = manager.transcript(job.id, item.index)
+            if t is not None:
+                out.append((item, t))
+        return out
 
     def _check_format(fmt: str) -> str:
         fmt = (fmt or "txt").lower()
@@ -224,26 +255,64 @@ def create_app(
         title = job.title or job.id
         if fmt == "md":
             parts.append(f"# {title}\n")
-        for item in job.items:
-            if item.status != ITEM_DONE:
-                continue
-            t = manager.transcript(job_id, item.index)
-            if t is None:
-                continue
-            body = formats.to_txt(t, timestamps=timestamps).rstrip("\n")
-            if fmt == "md":
-                head = [f"## {item.index + 1}. {t.title}" if len(job.items) > 1 else f"## {t.title}", ""]
-                head.append(f"- Source: {t.url}")
-                if t.duration:
-                    head.append(f"- Duration: {formats.fmt_clock(t.duration)}")
-                head.append(f"- Transcript: {t.source}")
-                parts.append("\n".join(head) + "\n\n" + body + "\n")
-            else:
-                bar = "=" * 72
-                parts.append(f"{bar}\n{t.title}\n{t.url}\n{bar}\n\n{body}\n")
+        multi = len(job.items) > 1
+        for item, t in _finished(job):
+            label = f"{item.index + 1}. {t.title}" if (fmt == "md" and multi) else t.title
+            parts.append(_transcript_section(t, fmt, timestamps, label))
         if not parts or (fmt == "md" and len(parts) == 1):
             raise HTTPException(409, "No finished transcripts yet")
         filename = f"{safe_filename(title)}.{fmt}"
+        return _text_response("\n".join(parts), fmt, filename, download)
+
+    @app.get("/api/merge")
+    def api_merge(
+        jobs: str = Query(..., description="Comma-separated job ids, in the order they should appear"),
+        format: str = Query("txt"),
+        timestamps: bool = Query(False),
+        download: bool = Query(True),
+        title: Optional[str] = Query(None),
+    ) -> Response:
+        """Combine the finished transcripts of several jobs into one document."""
+        fmt = _check_format(format)
+        if fmt not in ("md", "txt"):
+            raise HTTPException(400, "merged output supports md or txt")
+        ids: list[str] = []
+        for raw in jobs.split(","):
+            raw = raw.strip()
+            if raw and raw not in ids:
+                ids.append(raw)
+        if not ids:
+            raise HTTPException(400, "Select at least one item to combine")
+        selected = [_job_or_404(i) for i in ids]
+
+        entries: list[tuple[Any, Transcript]] = []
+        for job in selected:
+            for _item, t in _finished(job):
+                entries.append((job, t))
+        if not entries:
+            raise HTTPException(409, "None of the selected items have a finished transcript yet")
+
+        doc_title = title or (selected[0].title or selected[0].id if len(selected) == 1 else "Combined transcripts")
+        parts: list[str] = []
+        if fmt == "md":
+            parts.append(f"# {doc_title}\n")
+            current: Optional[str] = None
+            for n, (job, t) in enumerate(entries, 1):
+                group = job.title or job.id
+                if group != current:
+                    parts.append(f"## {group}\n")
+                    current = group
+                parts.append(_transcript_section(t, fmt, timestamps, f"{n}. {t.title}", depth=3))
+        else:
+            if len(entries) > 1:
+                lines = []
+                for job, t in entries:
+                    group = job.title or job.id
+                    lines.append(t.title if group == t.title else f"{t.title}  ({group})")
+                parts.append(_contents_block(doc_title, lines))
+            for _job, t in entries:
+                parts.append(_transcript_section(t, fmt, timestamps, t.title))
+        filename = f"{safe_filename(doc_title)}.{fmt}"
         return _text_response("\n".join(parts), fmt, filename, download)
 
     # ------------------------------------------------------------------ desktop launcher

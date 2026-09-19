@@ -45,7 +45,10 @@ JOB_QUEUED, JOB_RESOLVING, JOB_RUNNING, JOB_DONE, JOB_FAILED, JOB_CANCELLED = (
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Microseconds, not seconds: several jobs are often created in the same
+    # second and the Recent list (and merge order) must not shuffle between
+    # refreshes.
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
 
 
 @dataclass
@@ -300,7 +303,9 @@ class JobManager:
         return self.jobs.get(job_id)
 
     def list(self) -> list[Job]:
-        return sorted(self.jobs.values(), key=lambda j: j.created_at, reverse=True)
+        """Newest first. The id breaks ties so the order is stable across calls
+        even for jobs written by an older build with second-precision times."""
+        return sorted(self.jobs.values(), key=lambda j: (j.created_at, j.id), reverse=True)
 
     def cancel(self, job_id: str) -> Optional[Job]:
         with self._lock:

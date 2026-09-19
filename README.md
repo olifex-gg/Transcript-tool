@@ -109,6 +109,21 @@ email, a chat), **Download**, and a link back to YouTube. For a playlist, **Copy
 give you one document with all videos, and **Download .zip** gives one file per video, numbered in playlist order.
 The format selector (Text / Markdown / SRT / VTT / JSON) and the *Timestamps* toggle apply to all of these.
 
+## Combining several transcripts
+
+The **Recent** list has a checkbox on each entry. Tick two or more and a bar appears with
+**Download .txt**, which merges every finished video from the selected jobs into one text file:
+a numbered contents list at the top, then each video under its title and link. **Copy** puts the
+same text on the clipboard, and **Share** (on phones) sends it to another app. **Select all** takes
+everything that has a transcript. Entries still running, or with no finished video, cannot be ticked.
+
+Videos appear in the order the entries are listed (newest first), and each job keeps its own
+internal playlist order. The same thing is available over HTTP:
+
+```
+GET /api/merge?jobs=<id>,<id>&format=txt&timestamps=0
+```
+
 ## Playlists
 
 - Paste any playlist URL, or a video URL that contains `&list=`; the *Transcribe the whole playlist*
@@ -189,6 +204,7 @@ The UI is a thin client over a JSON API (interactive docs at `/api/docs`):
 | `GET /api/jobs/{id}/items/{n}/segments` | Timed segments as JSON |
 | `GET /api/jobs/{id}/combined?format=md` | All finished transcripts in one file (`md` or `txt`) |
 | `GET /api/jobs/{id}/zip?format=srt` | One file per video |
+| `GET /api/merge?jobs=a,b&format=txt` | Several jobs merged into one document (`txt` or `md`) |
 | `POST /api/jobs/{id}/retry`, `POST /api/jobs/{id}/cancel`, `DELETE /api/jobs/{id}` | Manage a job |
 | `GET /t?url=…` | Start a job and redirect to it (share sheets, Shortcuts) |
 

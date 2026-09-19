@@ -78,9 +78,22 @@
     <section class="recent" id="recent" hidden>
       <div class="section-head">
         <h2>Recent</h2>
-        <button type="button" class="link" id="refresh-recent">Refresh</button>
+        <span class="head-actions">
+          <button type="button" class="link" id="select-all">Select all</button>
+          <button type="button" class="link" id="refresh-recent">Refresh</button>
+        </span>
       </div>
+      <p class="hint" id="select-hint">Tick two or more to combine them into one file.</p>
       <ul class="list" id="recent-list"></ul>
+      <div class="select-bar" id="select-bar" hidden>
+        <span class="select-count" id="select-count"></span>
+        <div class="row wrap">
+          <a class="btn small primary" id="merge-download" href="#">Download .txt</a>
+          <button type="button" class="btn small" id="merge-copy">Copy</button>
+          <button type="button" class="btn small" id="merge-share" hidden>Share</button>
+          <button type="button" class="btn small" id="select-clear">Clear</button>
+        </div>
+      </div>
     </section>
 
     <section class="help">
