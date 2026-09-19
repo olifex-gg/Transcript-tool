@@ -38,16 +38,36 @@ def _build_parser() -> argparse.ArgumentParser:
     g.add_argument("--timestamps", action="store_true", help="include [mm:ss] timestamps in txt/md output")
     g.add_argument("--no-playlist", action="store_true", help="only transcribe the video, even if the link is part of a playlist")
     g.add_argument("--stdout", action="store_true", help="print transcripts instead of writing files")
+
+    d = sub.add_parser("desktop", help="run as a desktop app: opens the browser, shows how to connect a phone")
+    d.add_argument("--port", type=int, default=None, help="port to listen on (default 8000, or the next free one)")
+    d.add_argument("--no-browser", action="store_true", help="don't open a browser window")
+    d.add_argument("--data-dir", default=None, help="where to keep transcripts (default: per-user app data folder)")
+
+    c = sub.add_parser("selfcheck", help="verify this installation/bundle works and print a JSON report")
+    c.add_argument("--out", default=None, help="also write the report to this file")
+    c.add_argument("--no-whisper", action="store_true", help="skip loading the Whisper native libraries")
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .desktop import is_frozen, run_desktop, selfcheck
+
     argv = list(sys.argv[1:] if argv is None else argv)
+    commands = ("serve", "get", "desktop", "selfcheck")
+    if not argv and is_frozen():
+        argv = ["desktop"]  # double-clicked packaged app
     # `yt-transcript <url>` is the common case; treat it as `get <url>`.
-    if argv and argv[0] not in ("serve", "get", "-h", "--help", "--version") and not argv[0].startswith("-"):
+    if argv and argv[0] not in commands + ("-h", "--help", "--version") and not argv[0].startswith("-"):
         argv.insert(0, "get")
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.command == "desktop":
+        return run_desktop(
+            Settings.from_env(), port=args.port, open_browser=not args.no_browser, data_dir=args.data_dir, verbose=args.verbose
+        )
+    if args.command == "selfcheck":
+        return selfcheck(out=args.out, with_whisper=not args.no_whisper)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s" if args.verbose else "%(message)s",

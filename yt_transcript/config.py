@@ -30,6 +30,7 @@ class Settings:
     host: str = "0.0.0.0"
     port: int = 8000
     password: Optional[str] = None  # optional HTTP basic auth password (user is "yt")
+    desktop: bool = False  # set by the desktop launcher; enables /api/desktop
     username: str = "yt"
 
     default_language: str = "en"

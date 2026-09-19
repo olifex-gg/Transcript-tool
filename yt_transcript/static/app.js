@@ -77,7 +77,7 @@
   // ------------------------------------------------------------ home view
   async function showHome() {
     $("#view-home").hidden = false; $("#view-job").hidden = true;
-    document.title = "YouTube Transcript";
+    document.title = "Transcript Tool";
     const p = prefs.get();
     $("#opt-language").value = p.language ?? (state.config?.default_language || "en");
     $("#opt-engine").value = p.engine ?? (state.config?.default_engine || "auto");
@@ -99,6 +99,26 @@
       submit();  // shared from another app: go straight to work
     }
     loadRecent();
+    loadDesktop();
+  }
+
+  async function loadDesktop() {
+    let d;
+    try { d = await api("/api/desktop"); } catch { return; }
+    if (!d.desktop) return;
+    const onThisComputer = ["localhost", "127.0.0.1", "[::1]"].includes(location.hostname);
+    $("#desktop-footer").hidden = !onThisComputer;
+    $("#desktop-data-dir").textContent = d.data_dir || "";
+    if (!onThisComputer || !d.urls || !d.urls.length) return;
+    const pick = $("#phone-pick");
+    pick.replaceChildren(...d.urls.map(u => el("option", { value: u }, u)));
+    pick.hidden = d.urls.length < 2;
+    const show = () => {
+      $("#phone-url").textContent = pick.value;
+      $("#phone-qr").src = `/api/desktop/qr.svg?url=${encodeURIComponent(pick.value)}`;
+    };
+    pick.onchange = show; show();
+    $("#phone-card").hidden = false;
   }
   function showFormError(msg) { const e = $("#form-error"); e.textContent = msg; e.hidden = !msg; }
 
@@ -255,6 +275,12 @@
   $("#delete-btn").addEventListener("click", async () => {
     if (!confirm("Delete this job and its transcripts?")) return;
     await api(`/api/jobs/${jobId()}`, { method: "DELETE" }); navigate("/");
+  });
+  $("#phone-copy").addEventListener("click", async () => toast((await copyText(() => $("#phone-pick").value)) ? "Address copied" : "Copy failed"));
+  $("#quit-btn").addEventListener("click", async () => {
+    if (!confirm("Stop Transcript Tool? Your phone won't be able to connect until you start it again.")) return;
+    try { await api("/api/desktop/quit", { method: "POST" }); } catch (e) { toast(e.message); return; }
+    document.body.innerHTML = '<main style="padding:48px 16px;text-align:center"><h1>Transcript Tool stopped</h1><p>You can close this tab.</p></main>';
   });
   window.addEventListener("popstate", route);
   document.addEventListener("visibilitychange", () => { if (!document.hidden && location.pathname.startsWith("/jobs/")) refreshJob(); });

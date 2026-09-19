@@ -9,14 +9,14 @@ import secrets
 import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from . import __version__, formats, whisper_engine
+from . import __version__, desktop, formats, whisper_engine
 from .config import Settings
 from .formats import FORMATS, MIME_TYPES, filename_for, render, safe_filename
 from .jobs import ITEM_DONE, JobManager
@@ -34,7 +34,11 @@ class CreateJobRequest(BaseModel):
     expand_playlists: Optional[bool] = Field(None, description="Transcribe every video in a playlist URL")
 
 
-def create_app(settings: Optional[Settings] = None, manager: Optional[JobManager] = None) -> FastAPI:
+def create_app(
+    settings: Optional[Settings] = None,
+    manager: Optional[JobManager] = None,
+    quit_callback: Optional[Callable[[], None]] = None,
+) -> FastAPI:
     settings = settings or Settings.from_env()
     manager = manager or JobManager(settings)
 
@@ -46,7 +50,7 @@ def create_app(settings: Optional[Settings] = None, manager: Optional[JobManager
         finally:
             manager.stop()
 
-    app = FastAPI(title="YouTube Transcript", version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
+    app = FastAPI(title=desktop.APP_NAME, version=__version__, lifespan=lifespan, docs_url="/api/docs", redoc_url=None)
     app.state.settings = settings
     app.state.manager = manager
 
@@ -122,6 +126,8 @@ def create_app(settings: Optional[Settings] = None, manager: Optional[JobManager
             "formats": list(FORMATS),
             "whisper_available": whisper_engine.available(),
             "whisper_model": settings.whisper_model,
+            "desktop": settings.desktop,
+            "app": desktop.APP_NAME,
         }
 
     @app.post("/api/jobs", status_code=201)
@@ -239,6 +245,44 @@ def create_app(settings: Optional[Settings] = None, manager: Optional[JobManager
             raise HTTPException(409, "No finished transcripts yet")
         filename = f"{safe_filename(title)}.{fmt}"
         return _text_response("\n".join(parts), fmt, filename, download)
+
+    # ------------------------------------------------------------------ desktop launcher
+    @app.get("/api/desktop")
+    def api_desktop() -> dict[str, Any]:
+        if not settings.desktop:
+            return {"desktop": False}
+        return {
+            "desktop": True,
+            "app": desktop.APP_NAME,
+            "version": __version__,
+            "port": settings.port,
+            "urls": desktop.lan_urls(settings.port),
+            "data_dir": str(settings.data_dir),
+        }
+
+    @app.get("/api/desktop/qr.svg")
+    def api_desktop_qr(url: Optional[str] = None) -> Response:
+        if not settings.desktop:
+            raise HTTPException(404, "Not running in desktop mode")
+        allowed = desktop.lan_urls(settings.port)
+        url = url or (allowed[0] if allowed else None)
+        if not url or url not in allowed:
+            raise HTTPException(400, "url must be one of this computer's addresses")
+        import qrcode
+        import qrcode.image.svg as qsvg
+
+        img = qrcode.make(url, image_factory=qsvg.SvgPathImage, box_size=10, border=1)
+        return Response(img.to_string(encoding="unicode"), media_type="image/svg+xml", headers={"Cache-Control": "no-cache"})
+
+    @app.post("/api/desktop/quit")
+    def api_desktop_quit(request: Request) -> dict[str, Any]:
+        if not settings.desktop or quit_callback is None:
+            raise HTTPException(404, "Not running in desktop mode")
+        host = request.client.host if request.client else ""
+        if host not in ("127.0.0.1", "::1", "localhost"):
+            raise HTTPException(403, "Quit is only allowed from the computer the app runs on")
+        quit_callback()
+        return {"ok": True}
 
     # ------------------------------------------------------------------ share-sheet / shortcut entry point
     @app.get("/t")

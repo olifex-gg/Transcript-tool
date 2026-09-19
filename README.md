@@ -1,7 +1,38 @@
-# YouTube Transcript
+# Transcript Tool
 
-A small self-hosted web app (plus CLI) that turns YouTube videos **and whole playlists** into text.
+A small app that turns YouTube videos **and whole playlists** into text.
 It is built to be used from a phone: paste a link, tap *Transcribe*, then copy, share or download the result.
+It runs on your computer (or a server) and your phone connects to it over Wi-Fi.
+
+## Download the app (no setup)
+
+Grab the build for your computer from the **[latest release](https://github.com/olifex-gg/Transcript-tool/releases/latest)**:
+
+| Computer | File |
+| --- | --- |
+| Mac with Apple silicon (M1 or newer) | `transcript-tool-macos-apple-silicon.zip` |
+| Mac with an Intel chip | `transcript-tool-macos-intel.zip` |
+| Windows (64-bit) | `transcript-tool-windows-x64.zip` |
+| Linux (x86-64) | `transcript-tool-linux-x64.tar.gz` |
+
+Unzip it and open **Transcript Tool** (Mac) or **transcript-tool** inside the folder (Windows/Linux).
+Your browser opens with a QR code; scan it with your phone while both are on the same Wi-Fi, then use
+the phone browser's *Add to Home screen*. Transcripts are kept in your user data folder, and the app
+keeps running until you close its window (Windows/Linux) or quit it from the Dock or the page footer (Mac).
+
+The builds are not code-signed, so the first launch needs one extra click:
+
+- **Mac:** right-click the app and choose *Open*, then *Open* again. On newer macOS versions, go to
+  *System Settings → Privacy & Security* and click *Open Anyway* if the first attempt is blocked.
+- **Windows:** if SmartScreen appears, click *More info* → *Run anyway*. Allow the app through the
+  firewall on private networks so your phone can reach it.
+
+The desktop builds include Whisper speech-to-text for videos without captions (the Intel Mac build may not,
+depending on library availability). If YouTube changes something and transcripts stop working, download the
+newest release; each one bundles the current yt-dlp.
+
+Everything below is for running it yourself with Python or Docker, which is the way to go for a server
+that is reachable from anywhere.
 
 - **Videos and playlists.** Paste a playlist link and every video in it is transcribed, a few at a time,
   with per-video progress. Channel pages work too (they are treated as playlists).
@@ -101,6 +132,10 @@ if the language you asked for only exists as YouTube's machine translation, that
 | `captions` | Captions only; fails fast for videos without them |
 | `whisper` | Always download the audio and transcribe locally |
 
+One dependency note: to download the audio, yt-dlp needs a JavaScript runtime to solve YouTube's player
+challenges. Install [Deno](https://deno.com) (recommended) or [Node.js](https://nodejs.org) and make sure it is
+on your PATH; the desktop app and the Docker image pick up either automatically. Captions never need this.
+
 Whisper runs on CPU by default with the `small` model (a decent accuracy/speed trade-off; roughly
 real-time on a modern laptop core, slower on small VPS instances). Change with `WHISPER_MODEL`
 (`tiny`, `base`, `small`, `medium`, `large-v3`, or any faster-whisper/CTranslate2 model name).
@@ -132,6 +167,7 @@ All settings are environment variables (see `docker-compose.yml`):
 ## Command line
 
 ```bash
+yt-transcript desktop                                                 # same as the packaged app: opens browser, shows phone QR
 yt-transcript https://www.youtube.com/watch?v=dQw4w9WgXcQ            # -> transcripts/<title>.txt
 yt-transcript "https://www.youtube.com/playlist?list=PL..." -f srt -o out/
 yt-transcript URL --stdout --timestamps                                # print to the terminal
@@ -164,6 +200,8 @@ The UI is a thin client over a JSON API (interactive docs at `/api/docs`):
   Lowering `WORKERS` to 1 also helps.
 - **Video has no captions.** Install the Whisper extra (`pip install ".[whisper]"` or the
   `WHISPER=1` Docker build) and use the `auto` or `whisper` engine.
+- **"No supported JavaScript runtime"** when Whisper tries to download audio. Install Deno or Node.js
+  (see *Languages and engines*).
 - **YouTube changed something and everything fails.** Update yt-dlp: `pip install -U yt-dlp`
   (or rebuild the Docker image). yt-dlp is updated within days of YouTube changes.
 - **Share target does not appear on Android.** The site must be installed from an HTTPS origin;
@@ -175,6 +213,21 @@ The UI is a thin client over a JSON API (interactive docs at `/api/docs`):
 pip install -e ".[dev,whisper]"
 pytest
 yt-transcript serve --reload
+```
+
+### Building the desktop app
+
+```bash
+pip install ".[whisper,build]"
+pyinstaller --noconfirm --clean packaging/transcript-tool.spec
+dist/transcript-tool/transcript-tool selfcheck      # macOS: "dist/Transcript Tool.app/Contents/MacOS/Transcript Tool"
+```
+
+GitHub Actions (`.github/workflows/build.yml`) builds all four platforms on every push and attaches them to a
+GitHub Release whenever a `v*` tag is pushed:
+
+```bash
+git tag v0.1.1 && git push origin v0.1.1
 ```
 
 Tests do not touch the network; the job pipeline is exercised with fake resolvers/transcribers.

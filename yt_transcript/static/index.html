@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Transcript">
-<title>YouTube Transcript</title>
+<title>Transcript Tool</title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/static/icon-192.png">
@@ -27,6 +27,19 @@
 <main id="app">
   <!-- ---------------------------------------------------------------- home -->
   <section id="view-home" hidden>
+    <section class="card phone-card" id="phone-card" hidden>
+      <img id="phone-qr" alt="QR code with this computer's address" width="132" height="132">
+      <div class="phone-text">
+        <h2>Use it on your phone</h2>
+        <p>Scan the code, or open <strong id="phone-url"></strong> on a phone that is on the same Wi-Fi.
+          Then use the browser's <em>Add to Home screen</em>.</p>
+        <div class="row">
+          <button type="button" class="btn small" id="phone-copy">Copy address</button>
+          <select id="phone-pick" hidden aria-label="Network address"></select>
+        </div>
+      </div>
+    </section>
+
     <form id="form" autocomplete="off">
       <label class="field-label" for="urls">YouTube video or playlist link</label>
       <textarea id="urls" rows="3" inputmode="url" enterkeyhint="go"
@@ -78,6 +91,10 @@
           <li><strong>iPhone:</strong> add to Home Screen from Safari's share menu for an app icon, and create a Shortcut that opens <code><span class="origin"></span>/t?url=</code> followed by the shared URL to transcribe straight from the YouTube share sheet. Details are in the README.</li>
         </ul>
       </details>
+      <p class="desktop-footer" id="desktop-footer" hidden>
+        Running on this computer. Transcripts are saved in <code id="desktop-data-dir"></code>.
+        <button type="button" class="link" id="quit-btn">Quit Transcript Tool</button>
+      </p>
     </section>
   </section>
 

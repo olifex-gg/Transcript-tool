@@ -110,7 +110,7 @@ def test_quick_transcribe_redirect_and_ui(client, manager):
     assert wait(client, manager, job_id)["status"] == "done"
     r = client.get("/t", params={"text": "no link here"}, follow_redirects=False)
     assert r.headers["location"] == "/?error=no-url"
-    assert "<title>YouTube Transcript</title>" in client.get("/").text
+    assert "<title>Transcript Tool</title>" in client.get("/").text
     assert client.get(f"/jobs/{job_id}").status_code == 200
     assert client.get("/manifest.webmanifest").json()["share_target"]["action"] == "/"
     assert client.get("/static/app.js").status_code == 200

@@ -49,6 +49,9 @@ def base_opts(settings: Settings) -> dict[str, Any]:
         "extractor_retries": 3,
         "socket_timeout": 30,
         "color": {"stdout": "no_color", "stderr": "no_color"},
+        # YouTube audio streams (used by Whisper) need a JavaScript runtime;
+        # accept whichever of these is installed. Captions work without one.
+        "js_runtimes": {"deno": {}, "node": {}},
     }
     if settings.cookies_file:
         opts["cookiefile"] = settings.cookies_file

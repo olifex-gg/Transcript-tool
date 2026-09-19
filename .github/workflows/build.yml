@@ -1,0 +1,114 @@
+name: Build desktop apps
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            name: linux-x64
+          - os: windows-latest
+            name: windows-x64
+          - os: macos-15
+            name: macos-apple-silicon
+          - os: macos-15-intel
+            name: macos-intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install (with Whisper when wheels exist for this platform)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install ".[whisper,build]" || { echo "::warning::Whisper not available on this platform, building captions-only"; pip install ".[build]"; }
+
+      - name: Build with PyInstaller
+        env:
+          HF_HUB_OFFLINE: "1"
+        run: pyinstaller --noconfirm --clean packaging/transcript-tool.spec
+
+      - name: Smoke test the bundle
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            BIN="dist/Transcript Tool.app/Contents/MacOS/Transcript Tool"
+          else
+            BIN="dist/transcript-tool/transcript-tool"
+          fi
+          "$BIN" selfcheck --out selfcheck.json
+          cat selfcheck.json
+
+      - name: Package
+        shell: bash
+        run: |
+          mkdir -p out
+          case "$RUNNER_OS" in
+            macOS)   (cd dist && ditto -c -k --keepParent "Transcript Tool.app" "../out/transcript-tool-${{ matrix.name }}.zip") ;;
+            Windows) (cd dist && 7z a -tzip "../out/transcript-tool-${{ matrix.name }}.zip" transcript-tool > /dev/null) ;;
+            Linux)   (cd dist && tar czf "../out/transcript-tool-${{ matrix.name }}.tar.gz" transcript-tool) ;;
+          esac
+          ls -la out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transcript-tool-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+          body: |
+            ## Download
+
+            | Computer | File |
+            | --- | --- |
+            | Mac with Apple silicon (M1 or newer) | `transcript-tool-macos-apple-silicon.zip` |
+            | Mac with an Intel chip | `transcript-tool-macos-intel.zip` |
+            | Windows (64-bit) | `transcript-tool-windows-x64.zip` |
+            | Linux (x86-64) | `transcript-tool-linux-x64.tar.gz` |
+
+            Unzip, then open **Transcript Tool** (Mac) or **transcript-tool** (Windows/Linux, inside the folder).
+            Your browser opens with a QR code; scan it with your phone on the same Wi-Fi.
+
+            These builds are not code-signed, so the first launch needs one extra step:
+
+            - **Mac:** right-click (or Control-click) the app and choose *Open*, then *Open* again in the dialog. On recent macOS versions you may instead need to go to *System Settings → Privacy & Security* and click *Open Anyway*.
+            - **Windows:** if SmartScreen appears, click *More info* and then *Run anyway*. Allow it through the firewall on private networks so your phone can connect.

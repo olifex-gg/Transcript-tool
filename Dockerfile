@@ -10,8 +10,10 @@ ENV PYTHONUNBUFFERED=1 \
     HOST=0.0.0.0 \
     PORT=8000
 
+# ffmpeg helps yt-dlp with some audio formats; Node.js is the JavaScript runtime
+# yt-dlp needs to unlock YouTube audio streams for the Whisper path.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg ca-certificates nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
