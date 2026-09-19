@@ -6,6 +6,15 @@ on:
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a GitHub Release with the built apps"
+        type: boolean
+        default: false
+      version:
+        description: "Release version, e.g. 0.1.0 (default: version in pyproject.toml)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -82,17 +91,36 @@ jobs:
           if-no-files-found: error
 
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    # Runs for a pushed v* tag, or when "Run workflow" is used with publish=true
+    # (which creates the tag on the built commit).
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.publish == 'true')
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      - name: Work out the release tag
+        id: tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tag="$GITHUB_REF_NAME"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            tag="v${{ github.event.inputs.version }}"
+          else
+            tag="v$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -1)"
+          fi
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+          echo "Releasing as $tag"
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          target_commitish: ${{ github.sha }}
+          name: Transcript Tool ${{ steps.tag.outputs.name }}
           files: out/*
           generate_release_notes: true
           body: |
