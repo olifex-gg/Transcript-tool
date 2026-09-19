@@ -64,3 +64,44 @@ def test_selfcheck_runs_end_to_end(tmp_path):
     report = json.loads(out.read_text())
     assert report["ok"] and report["extractors"] > 100
     assert report["http"]["/healthz"] == 200 and report["http"]["/api/desktop"] == 200
+
+
+def test_hostname_lookup_cannot_stall_a_request(monkeypatch):
+    """A machine whose own name does not resolve must not hang the app.
+
+    This failed CI on a macOS runner: /api/desktop took longer than ten
+    seconds because getaddrinfo blocked on the local hostname.
+    """
+    import socket as socket_mod
+    import time
+
+    calls = []
+
+    def hanging_getaddrinfo(*a, **kw):
+        calls.append(a)
+        time.sleep(30)
+        raise AssertionError("should never be waited on")
+
+    monkeypatch.setattr(socket_mod, "getaddrinfo", hanging_getaddrinfo)
+    monkeypatch.setattr(desktop, "_address_cache", None)
+    monkeypatch.setattr(desktop, "_HOSTNAME_LOOKUP_TIMEOUT", 0.2)
+
+    started = time.monotonic()
+    addresses = desktop.lan_addresses(use_cache=False)
+    elapsed = time.monotonic() - started
+    assert elapsed < 5, f"lan_addresses blocked for {elapsed:.1f}s"
+    assert calls, "the hostname lookup should still be attempted"
+    # The UDP-socket probe needs no resolver, so the routable address survives.
+    for ip in addresses:
+        assert not ipaddress.ip_address(ip).is_loopback
+
+
+def test_addresses_are_cached_between_calls(monkeypatch):
+    monkeypatch.setattr(desktop, "_address_cache", None)
+    calls = []
+    monkeypatch.setattr(desktop, "_hostname_addresses", lambda *a, **kw: calls.append(1) or [])
+    first = desktop.lan_addresses()
+    second = desktop.lan_addresses()
+    assert first == second and len(calls) == 1, "the second call should come from the cache"
+    desktop.lan_addresses(use_cache=False)
+    assert len(calls) == 2, "use_cache=False must recompute"

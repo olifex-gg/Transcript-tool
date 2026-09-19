@@ -46,8 +46,52 @@ def user_data_dir() -> Path:
     return Path(base) / "transcript-tool"
 
 
-def lan_addresses() -> list[str]:
-    """This machine's IPv4 addresses that other devices can reach, best first."""
+_HOSTNAME_LOOKUP_TIMEOUT = 1.0
+_ADDRESS_CACHE_TTL = 10.0
+_address_cache: Optional[tuple[float, list[str]]] = None
+_address_lock = threading.Lock()
+
+
+def _hostname_addresses(timeout: float = _HOSTNAME_LOOKUP_TIMEOUT) -> list[str]:
+    """Addresses from resolving this machine's own name.
+
+    ``getaddrinfo`` on the local hostname goes through the system resolver and
+    can block for many seconds when the name does not resolve (a stock macOS
+    machine asking mDNS, for instance). Run it on a throwaway thread and give
+    up quickly, so a slow resolver can never stall a request.
+    """
+    result: list[str] = []
+
+    def work() -> None:
+        try:
+            for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+                result.append(info[4][0])
+        except (OSError, UnicodeError):
+            pass
+
+    t = threading.Thread(target=work, name="hostname-lookup", daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        log.debug("Hostname lookup did not finish within %.1fs; ignoring it", timeout)
+        return []
+    return result
+
+
+def lan_addresses(use_cache: bool = True) -> list[str]:
+    """This machine's IPv4 addresses that other devices can reach, best first.
+
+    Cached briefly: it is read on every page load, and the hostname lookup can
+    be slow. Addresses still follow the machine onto a new network within
+    ``_ADDRESS_CACHE_TTL`` seconds.
+    """
+    global _address_cache
+    now = time.monotonic()
+    with _address_lock:
+        cached = _address_cache
+    if use_cache and cached and now - cached[0] < _ADDRESS_CACHE_TTL:
+        return list(cached[1])
+
     found: list[str] = []
 
     def add(ip: str) -> None:
@@ -62,17 +106,20 @@ def lan_addresses() -> list[str]:
 
     # connect() on a UDP socket sends nothing but makes the OS pick the
     # interface it would use for the default route, i.e. the Wi-Fi/LAN one.
+    # This needs no name resolution, so it is both fast and the best guess.
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
             s.connect(("8.8.8.8", 53))
             add(s.getsockname()[0])
     except OSError:
         pass
-    try:
-        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
-            add(info[4][0])
-    except (OSError, UnicodeError):
-        pass
+    # Then any other interface, so a machine on both Ethernet and Wi-Fi offers
+    # the address the phone can actually reach.
+    for ip in _hostname_addresses():
+        add(ip)
+
+    with _address_lock:
+        _address_cache = (now, list(found))
     return found
 
 
@@ -187,7 +234,7 @@ def run_desktop(
         return 1
 
     local = f"http://127.0.0.1:{settings.port}/"
-    phone = lan_urls(settings.port)
+    phone = lan_urls(settings.port)  # also warms the address cache
     lines = [
         f"{APP_NAME} {__version__} is running.",
         f"  On this computer:  {local}",
